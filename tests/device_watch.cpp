@@ -70,7 +70,9 @@ int main()
 	ComPtr<ID3D12Device> device;
 	if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) && SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
 		D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
-	const bool onWarp = device != nullptr;
+	// Wine hands out a real GPU as its "WARP" adapter: only Microsoft's own counts.
+	DXGI_ADAPTER_DESC desc = {};
+	const bool onWarp = device && SUCCEEDED(warp->GetDesc(&desc)) && desc.VendorId == 0x1414 && desc.DeviceId == 0x8c;
 	if (!device && FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
 	{
 		std::printf("skipped: no D3D12 device here\n");
