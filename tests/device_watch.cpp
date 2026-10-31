@@ -1,7 +1,8 @@
 // The device-removal watch (xr/src/diagnostics.cpp) on a real D3D12 device: Microsoft's WARP
 // adapter on CI's Windows runner, the first GPU elsewhere. The device is removed on purpose
 // (ID3D12Device5::RemoveDevice), and runtime.log's lines have to name it, once. A system with
-// no D3D12 device, or one that can't remove a device (Wine's vkd3d), skips what it can't do.
+// no D3D12 device, or one that can't remove a device (Wine's vkd3d), skips what it can't do;
+// on WARP nothing may be skipped, so CI's pass means the removal was seen.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d12.h>
@@ -69,6 +70,7 @@ int main()
 	ComPtr<ID3D12Device> device;
 	if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) && SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
 		D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
+	const bool onWarp = device != nullptr;
 	if (!device && FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
 	{
 		std::printf("skipped: no D3D12 device here\n");
@@ -92,6 +94,7 @@ int main()
 	if (FAILED(device.As(&device5)))
 	{
 		std::printf("skipped the removal: no ID3D12Device5 here\n");
+		CHECK(!onWarp);
 		EchoXR_UnwatchDevice();
 		return g_failures ? 1 : 0;
 	}
@@ -99,6 +102,7 @@ int main()
 	if (device->GetDeviceRemovedReason() == S_OK)
 	{
 		std::printf("skipped the removal: RemoveDevice did nothing here\n");
+		CHECK(!onWarp);
 		EchoXR_UnwatchDevice();
 		return g_failures ? 1 : 0;
 	}
