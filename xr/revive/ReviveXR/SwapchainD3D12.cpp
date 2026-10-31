@@ -70,6 +70,7 @@ ovrResult ovrTextureSwapChainD3D12::InitBarriers()
 		barrier.Transition.StateBefore = target;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		m_AcquireBarriers[i]->SetName(L"EchoXR: swapchain image to the game");   // named in DRED's log
 		m_AcquireBarriers[i]->ResourceBarrier(1, &barrier);
 		m_AcquireBarriers[i]->Close();
 
@@ -78,6 +79,7 @@ ovrResult ovrTextureSwapChainD3D12::InitBarriers()
 
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 		barrier.Transition.StateAfter = target;
+		m_ReleaseBarriers[i]->SetName(L"EchoXR: swapchain image to the runtime");
 		m_ReleaseBarriers[i]->ResourceBarrier(1, &barrier);
 		m_ReleaseBarriers[i]->Close();
 	}

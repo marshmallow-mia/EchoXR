@@ -86,6 +86,14 @@ static void Parsing()
 	CHECK(bad.vibration == 100.0f && bad.pitch == 0.0f);
 	CHECK(notes.size() == 5);
 
+	// The two rendering switches: off and the old wait on request, a bad word keeps the default.
+	notes.clear();
+	CHECK(d.depthLayers && d.swapchainWait == SwapchainWait::Ready);
+	ControllerSettings r = ParseControllerSettings("DepthLayers = 0\nSwapchainWait = Frame\n", &notes);
+	CHECK(notes.empty() && !r.depthLayers && r.swapchainWait == SwapchainWait::Frame);
+	r = ParseControllerSettings("SwapchainWait = forever\n", &notes);
+	CHECK(notes.size() == 1 && r.swapchainWait == SwapchainWait::Ready);
+
 	// Every key the launcher may write is known.
 	for (const char* key : kControllerKeys)
 	{

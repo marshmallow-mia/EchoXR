@@ -6,6 +6,7 @@
 #include "InputManager.h"
 
 #include "../../src/echoxr_policy.h"
+#include "../../src/echoxr_diag.h"
 #include "../../src/echoxr_settings.h"
 
 #define XR_USE_GRAPHICS_API_D3D11
@@ -364,6 +365,7 @@ ovrResult ovrHmdStruct::DestroySession()
 		Input->AttachSession(XR_NULL_HANDLE);
 
 	FrameBegun = false;
+	EchoXR_UnwatchDevice();
 	CHK_XR(xrDestroySession(Session));
 	Session = XR_NULL_HANDLE;
 	ViewSpace = XR_NULL_HANDLE;

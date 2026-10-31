@@ -6,6 +6,8 @@
 
 #include "Common.h"
 #include "../../src/echoxr_policy.h"
+#include "../../src/echoxr_diag.h"
+#include "../../src/echoxr_settings.h"
 #include "Session.h"
 #include "Runtime.h"
 #include "InputManager.h"
@@ -21,6 +23,8 @@
 #include <thread>
 #include <chrono>
 #include <detours/detours.h>
+
+echoxr::ControllerSettings EchoXR_Controls();
 
 XrInstance g_Instance = XR_NULL_HANDLE;
 std::list<ovrHmdStruct> g_Sessions;
@@ -73,6 +77,8 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 	MicroProfileSetEnableAllGroups(true);
 	MicroProfileSetForceMetaCounters(true);
 	MicroProfileWebServerStart();
+
+	EchoXR_EnableDred();
 
 	DetachDetours();
 	ovrResult rs = Runtime::Get().CreateInstance(&g_Instance, params);
@@ -366,7 +372,7 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetSessionStatus(ovrSession session, ovrSessi
 	sessionStatus->HasInputFocus = status.HasInputFocus;
 	sessionStatus->OverlayPresent = status.OverlayPresent;
 	if (Runtime::Get().MinorVersion > 20)
-		sessionStatus->DepthRequested = Runtime::Get().CompositionDepth;
+		sessionStatus->DepthRequested = Runtime::Get().CompositionDepth && EchoXR_Controls().depthLayers;
 
 	return ovrSuccess;
 }
@@ -923,7 +929,10 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_WaitToBeginFrame(ovrSession session, long lon
 	assert(session->CurrentFrame.is_lock_free());
 	XrIndexedFrameState* frameState = &session->FrameStats[frameIndex % ovrMaxProvidedFrameStats];
 	XrFrameWaitInfo waitInfo = XR_TYPE(FRAME_WAIT_INFO);
-	CHK_XR(xrWaitFrame(session->Session, &waitInfo, frameState));
+	{
+		EchoXR_Call call("xrWaitFrame");
+		CHK_XR(xrWaitFrame(session->Session, &waitInfo, frameState));
+	}
 	frameState->frameIndex = frameIndex;
 	session->CurrentFrame = frameState;
 
@@ -951,7 +960,10 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_BeginFrame(ovrSession session, long long fram
 	assert(frameIndex == (*session->CurrentFrame).frameIndex);
 
 	XrFrameBeginInfo beginInfo = XR_TYPE(FRAME_BEGIN_INFO);
-	CHK_XR(xrBeginFrame(session->Session, &beginInfo));
+	{
+		EchoXR_Call call("xrBeginFrame");
+		CHK_XR(xrBeginFrame(session->Session, &beginInfo));
+	}
 	session->FrameBegun = true;
 	return ovrSuccess;
 }
@@ -985,6 +997,9 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_EndFrame(ovrSession session, long long frameI
 
 	// We are going to use some space handles here, don't destroy them
 	std::shared_lock<std::shared_mutex> lk(session->TrackingMutex);
+
+	// EchoXR: DepthLayers = 0 in EchoXR.txt hands the runtime colour only.
+	const bool depthLayers = EchoXR_Controls().depthLayers;
 
 	// The oculus runtime is very tolerant of invalid viewports, so this lambda ensures we submit valid ones.
 	// This fixes UE4 games which can at times submit uninitialized viewports due to a bug in OVR_Math.h.
@@ -1072,7 +1087,7 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_EndFrame(ovrSession session, long long frameI
 				if (texture->Images->type == XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR ? !upsideDown : upsideDown)
 					OVR::OVRMath_Swap(view.fov.angleUp, view.fov.angleDown);
 
-				if (type == ovrLayerType_EyeFovDepth && Runtime::Get().CompositionDepth)
+				if (type == ovrLayerType_EyeFovDepth && Runtime::Get().CompositionDepth && depthLayers)
 				{
 					depthData.emplace_back();
 					XrCompositionLayerDepthInfoKHR& depthInfo = depthData.back();
@@ -1183,7 +1198,10 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_EndFrame(ovrSession session, long long frameI
 	endInfo.layerCount = (uint32_t)layers.size();
 	endInfo.layers = layers.data();
 	session->FrameBegun = false;
-	CHK_XR(xrEndFrame(session->Session, &endInfo));
+	{
+		EchoXR_Call call("xrEndFrame");
+		CHK_XR(xrEndFrame(session->Session, &endInfo));
+	}
 
 	static std::atomic<bool> firstFrameLogged{ false };
 	if (!layers.empty() && !firstFrameLogged.exchange(true))

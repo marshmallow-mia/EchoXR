@@ -1,0 +1,122 @@
+// The device-removal watch (xr/src/diagnostics.cpp) on a real D3D12 device: Microsoft's WARP
+// adapter on CI's Windows runner, the first GPU elsewhere. The device is removed on purpose
+// (ID3D12Device5::RemoveDevice), and runtime.log's lines have to name it, once. A system with
+// no D3D12 device, or one that can't remove a device (Wine's vkd3d), skips what it can't do.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#include <wrl/client.h>
+
+#include "echoxr_diag.h"
+
+#include <cstdarg>
+#include <cstdio>
+#include <mutex>
+#include <string>
+#include <vector>
+
+using Microsoft::WRL::ComPtr;
+
+static std::mutex g_linesLock;
+static std::vector<std::string> g_lines;
+
+// Stands in for xr_main.cpp's runtime.log.
+void EchoXR_Log(const char* fmt, ...)
+{
+	char line[1024];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(line, sizeof(line), fmt, ap);
+	va_end(ap);
+	std::printf("  log: %s\n", line);
+	std::lock_guard<std::mutex> lock(g_linesLock);
+	g_lines.push_back(line);
+}
+
+static int Count(const char* text)
+{
+	std::lock_guard<std::mutex> lock(g_linesLock);
+	int n = 0;
+	for (const std::string& l : g_lines)
+		n += l.find(text) != std::string::npos;
+	return n;
+}
+
+static int g_failures = 0;
+#define CHECK(cond) \
+	do { if (!(cond)) { std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); ++g_failures; } } while (0)
+
+// DebugBreak, not __debugbreak: clang-cl's __try only covers exceptions raised in calls.
+static void Breakpoint()
+{
+	__try
+	{
+		DebugBreak();
+	}
+	__except (GetExceptionCode() == EXCEPTION_BREAKPOINT ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
+	{
+	}
+}
+
+int main()
+{
+	setvbuf(stdout, nullptr, _IONBF, 0);
+	EchoXR_EnableDred();
+
+	ComPtr<IDXGIFactory4> factory;
+	ComPtr<IDXGIAdapter> warp;
+	ComPtr<ID3D12Device> device;
+	if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) && SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
+		D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
+	if (!device && FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
+	{
+		std::printf("skipped: no D3D12 device here\n");
+		return 0;
+	}
+
+	// The adapter line, with and without the runtime's adapter.
+	const LUID own = device->GetAdapterLuid();
+	LUID other = own;
+	other.LowPart ^= 0x5a5a;
+	EchoXR_WatchD3D12Device(device.Get(), other);
+	CHECK(Count("NOT THE SAME ADAPTER") == 1);
+	EchoXR_WatchD3D12Device(device.Get(), own);
+	CHECK(Count("D3D12 device on ") == 2 && Count("NOT THE SAME ADAPTER") == 1);
+
+	// A breakpoint while the device is fine says nothing.
+	Breakpoint();
+	CHECK(Count("was removed") == 0);
+
+	ComPtr<ID3D12Device5> device5;
+	if (FAILED(device.As(&device5)))
+	{
+		std::printf("skipped the removal: no ID3D12Device5 here\n");
+		EchoXR_UnwatchDevice();
+		return g_failures ? 1 : 0;
+	}
+	device5->RemoveDevice();
+	if (device->GetDeviceRemovedReason() == S_OK)
+	{
+		std::printf("skipped the removal: RemoveDevice did nothing here\n");
+		EchoXR_UnwatchDevice();
+		return g_failures ? 1 : 0;
+	}
+
+	// The watch hears of it by itself, as when the GPU hangs while the game waits elsewhere.
+	for (int i = 0; i < 100 && Count("was removed") == 0; ++i)
+		Sleep(50);
+	CHECK(Count("was removed") == 1);
+	CHECK(Count("noticed by EchoXR's watch") == 1);
+	CHECK(Count("DRED") >= 1);
+
+	// Echo VR's own int3 afterwards doesn't log it a second time.
+	Breakpoint();
+	CHECK(Count("was removed") == 1);
+
+	EchoXR_UnwatchDevice();
+	EchoXR_UnwatchDevice();   // a second session end is harmless
+	if (g_failures == 0)
+		std::printf("all checks passed\n");
+	return g_failures ? 1 : 0;
+}

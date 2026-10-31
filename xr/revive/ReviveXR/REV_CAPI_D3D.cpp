@@ -5,6 +5,7 @@
 #include "SwapchainD3D11.h"
 #include "SwapchainD3D12.h"
 #include "XR_Math.h"
+#include "../../src/echoxr_diag.h"
 
 #include <detours/detours.h>
 #include <wrl/client.h>
@@ -209,6 +210,8 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_CreateTextureSwapChainDX(ovrSession session,
 			DetourVirtual(pDevice12.Get(), 20, (PVOID*)&TrueCreateRenderTargetView12, HookCreateRenderTargetView12);
 			session->HookedFunctions.insert(std::make_pair((PVOID*)&TrueCreateRenderTargetView12, HookCreateRenderTargetView12));
 			DetourTransactionCommit();
+
+			EchoXR_WatchD3D12Device(pDevice12.Get(), graphicsReq.adapterLuid);
 
 			XrGraphicsBindingD3D12KHR graphicsBinding = XR_TYPE(GRAPHICS_BINDING_D3D12_KHR);
 			graphicsBinding.device = pDevice12.Get();

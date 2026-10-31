@@ -173,6 +173,17 @@ static void GameBuilds()
 	CHECK(echoxr::PeTimestamp("not a PE") == 0);
 }
 
+static void SwapchainWaits()
+{
+	using namespace echoxr;
+	CHECK(AfterSwapchainWait(0, SwapchainWait::Ready, 0) == WaitNext::Done);              // XR_SUCCESS
+	CHECK(AfterSwapchainWait(kXrTimeoutExpired, SwapchainWait::Ready, 11000000) == WaitNext::Again);
+	CHECK(AfterSwapchainWait(kXrTimeoutExpired, SwapchainWait::Ready, kSwapchainWaitLimitNs) == WaitNext::GiveUp);
+	// Revive's way, kept to compare: one frame, then on.
+	CHECK(AfterSwapchainWait(kXrTimeoutExpired, SwapchainWait::Frame, 11000000) == WaitNext::Done);
+	CHECK(LogNth(1) && LogNth(10) && !LogNth(11) && LogNth(100) && !LogNth(101) && LogNth(200));
+}
+
 int main()
 {
 	Extensions();
@@ -181,6 +192,7 @@ int main()
 	Layers();
 	VrKeyDecisions();
 	Adapters();
+	SwapchainWaits();
 	if (g_failures)
 	{
 		std::printf("%d check(s) failed\n", g_failures);

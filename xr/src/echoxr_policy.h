@@ -91,6 +91,40 @@ inline int64_t NegotiateDepthFormat(int64_t format, bool offered, bool d32s8Offe
 	return format;
 }
 
+// --- Swapchain image waits -----------------------------------------------------------------
+
+// How long ovrTextureSwapChainData::Commit waits for the next image. xrWaitSwapchainImage
+// answers XR_TIMEOUT_EXPIRED, a success code, when the image isn't ready within its timeout
+// (one frame). Revive went on anyway, so the game drew into an image the compositor could
+// still be reading, and released it later after a wait that never succeeded. OpenXR allows
+// neither.
+enum class SwapchainWait
+{
+	Ready,  // wait again until the image is ready (up to kSwapchainWaitLimitNs)
+	Frame,  // Revive's way: one frame at most, then go on (EchoXR.txt, to compare)
+};
+
+constexpr int kXrTimeoutExpired = 1;                     // XR_TIMEOUT_EXPIRED
+constexpr int64_t kSwapchainWaitLimitNs = 5000000000;    // 5 s: past that, something hangs
+
+enum class WaitNext { Done, Again, GiveUp };
+
+// After one xrWaitSwapchainImage that didn't fail: whether the image is ready to draw into,
+// to be waited for again, or not coming (`waitedNs` since the first wait).
+inline WaitNext AfterSwapchainWait(int result, SwapchainWait policy, int64_t waitedNs)
+{
+	if (result != kXrTimeoutExpired || policy == SwapchainWait::Frame)
+		return WaitNext::Done;
+	return waitedNs < kSwapchainWaitLimitNs ? WaitNext::Again : WaitNext::GiveUp;
+}
+
+// Whether a diagnostic line about the `count`th slow call (from 1) is worth writing: the
+// first ten, then every hundredth, so a bad run says so without filling runtime.log.
+inline bool LogNth(uint64_t count)
+{
+	return count <= 10 || count % 100 == 0;
+}
+
 // --- Composition layers --------------------------------------------------------------------
 
 // ovrLayerType values (OVR_CAPI.h).

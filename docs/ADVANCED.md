@@ -53,6 +53,14 @@ Directions are given for the right hand; the left hand is mirrored. The settings
 the hand Echo sees, never its speed: throws and pushes stay as strong as the headset measures
 them, whatever the file says.
 
+Two more keys are for finding out why a graphics device stops responding
+(`DXGI_ERROR_DEVICE_HUNG`); the launcher doesn't write them:
+
+| Key | Values | Default | |
+|---|---|---|---|
+| `DepthLayers` | 1, 0 | 1 | hand Echo's depth to the runtime with each frame (`XR_KHR_composition_layer_depth`); 0 sends colour only |
+| `SwapchainWait` | `ready`, `frame` | `ready` | `ready`: wait until the runtime hands back the next image (up to 5 s). `frame`: Revive's way, at most one frame, then draw into the image even if the runtime still reads it |
+
 EchoXR locates the controllers in the runtime's own reference space and turns poses and
 velocities into Echo's recentered space itself: Virtual Desktop's runtime doesn't turn velocities
 into a reference space that has a pose of its own, and throws went off by the recenter's turn.
@@ -107,7 +115,7 @@ RiftLift code is used (it's GPL-3.0); xr/README.md lists what changed and why.
 | --- | --- |
 | `EchoXR\launcher.log` | every launch (dated): the runtime chosen, Proton's OpenXR setup, the runtime and headset found, Echo's exit code. Kept up to about 1 MB |
 | `EchoXR\platform.log` | the Platform SDK stand-in: where the identity came from, the ids, and every call the game's `pnsovr.dll` made |
-| `EchoXR\runtime.log` | the latest launch's OpenXR side: platform, runtime and extensions, the field-of-view probe, session states, swapchain format changes, the first frame, and every failed OpenXR call |
+| `EchoXR\runtime.log` | the latest launch's OpenXR side: platform, runtime and extensions, the field-of-view probe, the game's graphics adapter next to the one the runtime asked for, session states, swapchain format changes, the first frame, every failed OpenXR call, frame calls slower than 200 ms and swapchain images that weren't ready in time, and a removed graphics device: the reason, the OpenXR call in progress, and DRED's unfinished command lists and page fault |
 | `_local\r14logs\*.log` | Echo's own log ("Initializing OVR session…" and any session error) |
 
 `EchoXR.exe` returns Echo's exit code, or one of its own:

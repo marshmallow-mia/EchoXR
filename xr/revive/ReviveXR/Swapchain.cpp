@@ -7,6 +7,46 @@
 #include <dxgiformat.h>
 #include <d3dcommon.h>
 
+#include "../../src/echoxr_diag.h"
+#include "../../src/echoxr_settings.h"
+
+echoxr::ControllerSettings EchoXR_Controls();
+
+// EchoXR: waits until the swapchain's newly acquired image may be drawn into. Revive waited
+// one frame and went on when that ran out (XR_TIMEOUT_EXPIRED is a success code), so on a slow
+// frame, such as Echo VR loading the lobby, the game drew into an image the compositor could
+// still be reading, and the next release followed a wait that never succeeded. SteamVR's D3D12
+// path can then leave the GPU waiting for good (DXGI_ERROR_DEVICE_HUNG). SwapchainWait = frame
+// in EchoXR.txt brings Revive's way back, to compare. After 5 s it gives up with a log line and
+// goes on as Revive did, rather than hang the game.
+static XrResult WaitForImage(XrSwapchain swapchain, XrDuration firstTimeout)
+{
+	EchoXR_Call call("xrWaitSwapchainImage");
+	const echoxr::SwapchainWait policy = EchoXR_Controls().swapchainWait;
+	const LONGLONG start = GetTickCount64();
+	XrSwapchainImageWaitInfo waitInfo = XR_TYPE(SWAPCHAIN_IMAGE_WAIT_INFO);
+	waitInfo.timeout = firstTimeout > 1000000 ? firstTimeout : 1000000;   // at least 1 ms a try
+	for (;;)
+	{
+		const XrResult result = xrWaitSwapchainImage(swapchain, &waitInfo);
+		if (XR_FAILED(result))
+			return result;
+		const int64_t waitedNs = (int64_t)(GetTickCount64() - start) * 1000000;
+		switch (echoxr::AfterSwapchainWait(result, policy, waitedNs))
+		{
+		case echoxr::WaitNext::Done:
+			if (result == XR_TIMEOUT_EXPIRED)
+				EchoXR_SwapchainWaitTimedOut(waitedNs, false);
+			return result;
+		case echoxr::WaitNext::GiveUp:
+			EchoXR_SwapchainWaitTimedOut(waitedNs, true);
+			return XR_TIMEOUT_EXPIRED;
+		case echoxr::WaitNext::Again:
+			break;
+		}
+	}
+}
+
 ovrResult ovrTextureSwapChainData::Commit(ovrSession session)
 {
 	XrSwapchainImageReleaseInfo releaseInfo = XR_TYPE(SWAPCHAIN_IMAGE_RELEASE_INFO);
@@ -18,9 +58,7 @@ ovrResult ovrTextureSwapChainData::Commit(ovrSession session)
 		CHK_XR(xrAcquireSwapchainImage(Swapchain, &acquireInfo, &CurrentIndex));
 
 		// TODO: We could move this wait to the end of EndFrame so we submit earlier
-		XrSwapchainImageWaitInfo waitInfo = XR_TYPE(SWAPCHAIN_IMAGE_WAIT_INFO);
-		waitInfo.timeout = (*session->CurrentFrame).predictedDisplayPeriod;
-		CHK_XR(xrWaitSwapchainImage(Swapchain, &waitInfo));
+		CHK_XR(WaitForImage(Swapchain, (*session->CurrentFrame).predictedDisplayPeriod));
 	}
 	return ovrSuccess;
 }
@@ -72,9 +110,7 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	XrSwapchainImageAcquireInfo acqInfo = XR_TYPE(SWAPCHAIN_IMAGE_ACQUIRE_INFO);
 	CHK_XR(xrAcquireSwapchainImage(Swapchain, &acqInfo, &CurrentIndex));
 
-	XrSwapchainImageWaitInfo waitInfo = XR_TYPE(SWAPCHAIN_IMAGE_WAIT_INFO);
-	waitInfo.timeout = XR_NO_DURATION;
-	CHK_XR(xrWaitSwapchainImage(Swapchain, &waitInfo));
+	CHK_XR(WaitForImage(Swapchain, XR_NO_DURATION));   // EchoXR: was one look, then on
 	return ovrSuccess;
 }
 

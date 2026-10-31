@@ -82,10 +82,12 @@ const char* Name(echoxr::MenuChord c) { return c == echoxr::MenuChord::XY ? "X+Y
 void Describe(const echoxr::ControllerSettings& s, const char* source)
 {
 	EchoXR_Log("Controller settings (%s): hand pose %s, turn pitch %.1f yaw %.1f roll %.1f deg, offset %.1f %.1f %.1f cm, "
-		"deadzones stick %.2f trigger %.2f grip %.2f, vibration %.0f%%, menu chord %s, recenter on start %d, pose log %d",
+		"deadzones stick %.2f trigger %.2f grip %.2f, vibration %.0f%%, menu chord %s, recenter on start %d, pose log %d; "
+		"depth layers %d, swapchain wait %s",
 		source, Name(s.handPose), s.pitch, s.yaw, s.roll, s.offsetX, s.offsetY, s.offsetZ,
 		s.thumbstickDeadzone, s.triggerDeadzone, s.gripDeadzone, s.vibration, Name(s.menuChord),
-		s.recenterOnStart ? 1 : 0, s.poseLog ? 1 : 0);
+		s.recenterOnStart ? 1 : 0, s.poseLog ? 1 : 0, s.depthLayers ? 1 : 0,
+		s.swapchainWait == echoxr::SwapchainWait::Ready ? "ready" : "frame");
 }
 
 } // namespace

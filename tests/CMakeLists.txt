@@ -29,3 +29,10 @@ add_dependencies(platform_signin echoxr_platform)
 target_compile_definitions(platform_signin PRIVATE UNICODE _UNICODE)
 set_target_properties(platform_signin PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
 add_test(NAME platform_signin COMMAND platform_signin $<TARGET_FILE:echoxr_platform>)
+
+# The device-removal watch (xr/src/diagnostics.cpp) on a D3D12 device removed on purpose.
+add_executable(device_watch device_watch.cpp ${CMAKE_SOURCE_DIR}/xr/src/diagnostics.cpp)
+target_include_directories(device_watch PRIVATE ${CMAKE_SOURCE_DIR}/xr/src)
+target_link_libraries(device_watch PRIVATE d3d12 dxgi dxguid)
+set_target_properties(device_watch PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+add_test(NAME device_watch COMMAND device_watch)

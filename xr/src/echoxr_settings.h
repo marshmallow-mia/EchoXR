@@ -10,6 +10,8 @@
 // headset measures them.
 #pragma once
 
+#include "echoxr_policy.h"
+
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -47,6 +49,11 @@ struct ControllerSettings
 	MenuChord menuChord = MenuChord::Off;
 	bool recenterOnStart = true;
 	bool poseLog = false;
+
+	// Not controller settings: two rendering switches to narrow down a graphics device that
+	// stops responding (DXGI_ERROR_DEVICE_HUNG). Not shown by the launcher's Controllers plugin.
+	bool depthLayers = true;    // hand the game's depth to the runtime (XR_KHR_composition_layer_depth)
+	SwapchainWait swapchainWait = SwapchainWait::Ready;
 };
 
 // Every key EchoXR.txt knows, in the order the launcher's Controllers plugin shows them.
@@ -186,6 +193,17 @@ inline ControllerSettings ParseControllerSettings(const std::string& text, std::
 		}
 		else if (k == "recenteronstart") flag(key, value, s.recenterOnStart);
 		else if (k == "poselog") flag(key, value, s.poseLog);
+		else if (k == "depthlayers") flag(key, value, s.depthLayers);
+		else if (k == "swapchainwait")
+		{
+			const std::string v = Lower(value);
+			if (v == "ready")
+				s.swapchainWait = SwapchainWait::Ready;
+			else if (v == "frame")
+				s.swapchainWait = SwapchainWait::Frame;
+			else
+				note(key + ": \"" + value + "\" isn't ready or frame");
+		}
 		else
 			note("unknown key " + key);
 	}
