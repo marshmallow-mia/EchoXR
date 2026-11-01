@@ -3,8 +3,10 @@
 // signalled yet: after half a second runtime.log names the wait, its queue and this program
 // as the caller, and once the fence gets there it is gone. A removed device's report lists the
 // waits pending then, with the value the fence had and the last signal another queue was
-// asked for. A system that can't remove a device (Wine's vkd3d) skips that part; on WARP
-// nothing may be skipped.
+// asked for, and per queue the work it was given. A system that can't remove a device (Wine's
+// vkd3d) skips that part; on WARP nothing may be skipped. CI runs it again with
+// ECHOXR_VERBOSE=max: the line a second counts the queues' work, and the report lists the
+// signals too.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d12.h>
@@ -27,7 +29,7 @@ static std::vector<std::string> g_lines;
 // Stands in for xr_main.cpp's runtime.log.
 void EchoXR_Log(const char* fmt, ...)
 {
-	char line[1024];
+	char line[4096];
 	va_list ap;
 	va_start(ap, fmt);
 	vsnprintf(line, sizeof(line), fmt, ap);
@@ -113,6 +115,7 @@ int main()
 	}
 	game->SetName(L"Game Queue");
 	other->SetName(L"Other Queue");
+	const bool max = EchoXR_Max();
 
 	EchoXR_WatchD3D12Device(device.Get(), device->GetAdapterLuid());
 	EchoXR_WatchD3D12Queue(game.Get());
@@ -163,11 +166,36 @@ int main()
 		return Finish(b.Get(), 7);
 	}
 
+	// Some work for the game's queue: an empty command list.
+	ComPtr<ID3D12CommandAllocator> allocator;
+	ComPtr<ID3D12GraphicsCommandList> list;
+	if (SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) &&
+		SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&list))) &&
+		SUCCEEDED(list->Close()))
+	{
+		ID3D12CommandList* lists[] = { list.Get() };
+		game->ExecuteCommandLists(1, lists);
+	}
+	else
+		CHECK(!"no command list");
+
+	// At max the line a second has the queues' counts; otherwise there is none.
+	WaitFor("Second ", 1, max ? 2500 : 1500);
+	CHECK((Count("Second ") > 0) == max);
+	if (max)
+		CHECK(CountAll({ "Second ", "GPU waits pending ", "\"Other Queue\" " }) >= 1);
+
 	// The removal's report lists the wait still pending, as it was before the removal.
 	WaitFor("was removed", 1, 5000);
 	CHECK(Count("was removed") == 1);
 	CHECK(Count("GPU waits pending at the removal: 1 (oldest first)") == 1);
 	CHECK(CountAll({ "    queue \"Game Queue\" (the game's)", "to reach 7 (it was at 3)" }) == 1);
+	// Per queue: the game's was given the list, the other only asked to signal.
+	CHECK(CountAll({ "  queue \"Game Queue\" (the game's): last given work ", "(1 list(s))",
+		"queue_watch.exe+0x", "1 submission(s) of 1 list(s), 0 signal(s), 4 wait(s)" }) == 1);
+	CHECK(CountAll({ "  queue \"Other Queue\": never given work, by nobody; last asked to signal ",
+		"0 submission(s) of 0 list(s), 1 signal(s), 0 wait(s)" }) == 1);
+	CHECK(CountAll({ "  signal: fence ", "to 3 on \"Other Queue\"" }) == (max ? 1 : 0));
 
 	const int lines = Count("");
 	EchoXR_UnwatchDevice();

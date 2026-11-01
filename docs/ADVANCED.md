@@ -26,7 +26,24 @@ runtime itself works, and what was changed in Revive, is in [xr/README.md](../xr
 
 `EchoXR.exe` has no window. It passes every argument it doesn't know on
 to Echo; its own are `--runtime steamvr|active`, `--exe <name>` (another executable in
-`bin\win10`) and `--setup-only` (prepare `echovr_openxr.exe`, don't start Echo).
+`bin\win10`), `--verbose default|max` and `--setup-only` (prepare `echovr_openxr.exe`, don't
+start Echo).
+
+`--verbose max` makes `runtime.log` say everything it can see, for a problem that needs it (it
+sets `ECHOXR_VERBOSE=max` for that launch; a start without `EchoXR.exe` can set it itself):
+
+- a line a second: the frame calls' count, average and longest, video memory against its
+  budget, the GPU waits pending, each queue's submissions, signals and waits, and the
+  resources, heaps and residency calls of that second;
+- every resource or heap of 8 MB and more, every swapchain, the command line;
+- slow frame calls from 50 ms instead of 200 ms, and no thinning of repeated lines;
+- GPU waits named after 50 ms instead of half a second;
+- at a device removal every unfinished command list with the operations around where it
+  stopped, every pending GPU wait and the last signals asked of each queue.
+
+Past 6 MB `runtime.log` keeps only failed calls and a device removal's report, so it stays
+small enough for the launcher's log upload. A value other than `default` or `max` keeps the
+default.
 
 ## Controller settings (EchoXR.txt)
 
@@ -115,7 +132,7 @@ RiftLift code is used (it's GPL-3.0); xr/README.md lists what changed and why.
 | --- | --- |
 | `EchoXR\launcher.log` | every launch (dated): the runtime chosen, Proton's OpenXR setup, the runtime and headset found, Echo's exit code. Kept up to about 1 MB |
 | `EchoXR\platform.log` | the Platform SDK stand-in: where the identity came from, the ids, and every call the game's `pnsovr.dll` made |
-| `EchoXR\runtime.log` | the latest launch's OpenXR side: platform, runtime and extensions, the field-of-view probe, the game's graphics adapter next to the one the runtime asked for, session states, swapchain format changes, the first frame, every failed OpenXR call, frame calls slower than 200 ms and swapchain images that weren't ready in time, GPU waits still pending after half a second (the queue, the fence and value, who queued the wait and who was last asked to signal it), and a removed graphics device: the reason, the OpenXR call in progress, DRED's unfinished command lists and page fault, and the GPU waits pending then |
+| `EchoXR\runtime.log` | the latest launch's OpenXR side: EchoXR's version and how much it logs, platform, runtime and extensions, the field-of-view probe, the resolution the runtime asks for, every graphics adapter (memory, driver version), the game's next to the one the runtime asked for, its video memory and budget (and when that budget changes or its use passes 90% and 100% of it), session states, swapchain format changes, the first frame, every failed OpenXR call, frame calls slower than 200 ms and swapchain images that weren't ready in time, GPU waits still pending after half a second (the queue, the fence and value, who queued the wait and who was last asked to signal it), resources and heaps the device couldn't make (size, kind, who asked), and a removed graphics device: the reason, the OpenXR call in progress, the video memory then, DRED's unfinished command lists (the started ones first, then a count per queue) and page fault, the GPU waits pending then, each queue's last work and signal, and the allocations made. `--verbose max` adds more (above) |
 | `_local\r14logs\*.log` | Echo's own log ("Initializing OVR session…" and any session error) |
 
 `EchoXR.exe` returns Echo's exit code, or one of its own:

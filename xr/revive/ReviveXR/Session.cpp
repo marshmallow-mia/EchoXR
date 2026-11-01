@@ -95,6 +95,11 @@ ovrResult ovrHmdStruct::InitSession(XrInstance instance)
 			(float)ViewConfigs[i].recommendedImageRectHeight / (fov.UpTan + fov.DownTan)
 		);
 	}
+	// EchoXR: the resolution the runtime asks for (SteamVR's comes from its render resolution
+	// setting) makes much of the game's video memory.
+	EchoXR_Log("Views: %ux%u recommended per eye (at most %ux%u), %u sample(s)",
+		ViewConfigs[0].recommendedImageRectWidth, ViewConfigs[0].recommendedImageRectHeight,
+		ViewConfigs[0].maxImageRectWidth, ViewConfigs[0].maxImageRectHeight, ViewConfigs[0].recommendedSwapchainSampleCount);
 
 	// Initialize input manager
 	Input.reset(new InputManager(Instance));

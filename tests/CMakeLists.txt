@@ -30,18 +30,24 @@ target_compile_definitions(platform_signin PRIVATE UNICODE _UNICODE)
 set_target_properties(platform_signin PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
 add_test(NAME platform_signin COMMAND platform_signin $<TARGET_FILE:echoxr_platform>)
 
-# The device-removal watch (xr/src/diagnostics.cpp) on a D3D12 device removed on purpose.
-add_executable(device_watch device_watch.cpp ${CMAKE_SOURCE_DIR}/xr/src/diagnostics.cpp
-    ${CMAKE_SOURCE_DIR}/xr/src/queue_watch.cpp)
-target_include_directories(device_watch PRIVATE ${CMAKE_SOURCE_DIR}/xr/src)
-target_link_libraries(device_watch PRIVATE detours d3d12 dxgi dxguid)
-set_target_properties(device_watch PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
-add_test(NAME device_watch COMMAND device_watch)
+# The watches on a real D3D12 device, each run twice: with the default lines and with
+# ECHOXR_VERBOSE=max.
+set(WATCH_SOURCES ${CMAKE_SOURCE_DIR}/xr/src/diagnostics.cpp ${CMAKE_SOURCE_DIR}/xr/src/queue_watch.cpp
+    ${CMAKE_SOURCE_DIR}/xr/src/resource_watch.cpp)
+function(watch_test name)
+    add_executable(${name} ${name}.cpp ${WATCH_SOURCES})
+    target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/xr/src)
+    target_link_libraries(${name} PRIVATE detours d3d12 dxgi dxguid)
+    set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "ECHOXR_VERBOSE=default")
+    add_test(NAME ${name}_max COMMAND ${name})
+    set_tests_properties(${name}_max PROPERTIES ENVIRONMENT "ECHOXR_VERBOSE=max")
+endfunction()
 
+# The device-removal watch (xr/src/diagnostics.cpp) on a D3D12 device removed on purpose.
+watch_test(device_watch)
 # The GPU-wait watch (xr/src/queue_watch.cpp): a queue waiting for a fence nobody signals yet.
-add_executable(queue_watch queue_watch.cpp ${CMAKE_SOURCE_DIR}/xr/src/diagnostics.cpp
-    ${CMAKE_SOURCE_DIR}/xr/src/queue_watch.cpp)
-target_include_directories(queue_watch PRIVATE ${CMAKE_SOURCE_DIR}/xr/src)
-target_link_libraries(queue_watch PRIVATE detours d3d12 dxgi dxguid)
-set_target_properties(queue_watch PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
-add_test(NAME queue_watch COMMAND queue_watch)
+watch_test(queue_watch)
+# The allocation watch (xr/src/resource_watch.cpp): allocations no device can make.
+watch_test(resource_watch)

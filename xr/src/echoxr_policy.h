@@ -125,6 +125,39 @@ inline bool LogNth(uint64_t count)
 	return count <= 10 || count % 100 == 0;
 }
 
+// --- How much runtime.log says -------------------------------------------------------------
+
+// ECHOXR_VERBOSE (EchoXR.exe --verbose sets it): default, or max, which logs everything it can
+// see (a line a second, every allocation of 8 MB and more, no thinning), for a problem that
+// needs it.
+enum class Verbose { Default, Max };
+
+// "default" or "max" (any case); false for anything else, leaving `out` as it was.
+inline bool ParseVerbose(const char* text, Verbose& out)
+{
+	if (!text)
+		return false;
+	std::string v(text);
+	for (char& c : v)
+		c = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+	if (v == "default")
+		out = Verbose::Default;
+	else if (v == "max")
+		out = Verbose::Max;
+	else
+		return false;
+	return true;
+}
+
+// Past this much, runtime.log keeps only failed calls and a removal's report: it stays under
+// the 8 MB a launcher's log upload takes of one file.
+constexpr uint64_t kLogCapBytes = 6u << 20;
+
+inline bool KeepLogLine(uint64_t writtenBytes, bool important)
+{
+	return important || writtenBytes < kLogCapBytes;
+}
+
 // --- Composition layers --------------------------------------------------------------------
 
 // ovrLayerType values (OVR_CAPI.h).

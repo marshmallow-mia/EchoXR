@@ -1,7 +1,8 @@
 // EchoXR launcher -- starts Echo VR on an OpenXR runtime, no Oculus software. No UI: all it
 // has to say goes to EchoXR\launcher.log, and how it ended to its exit code.
 //
-//   EchoXR.exe [--exe <name>] [--runtime steamvr|active] [--setup-only] [echo arguments...]
+//   EchoXR.exe [--exe <name>] [--runtime steamvr|active] [--verbose default|max] [--setup-only]
+//              [echo arguments...]
 //
 // It lives next to the game's executable, in bin\win10 for the live build or bin\win7 for an
 // event build (echovr.exe; EchoArena.exe for the 2017 ones), and starts echovr_openxr.exe by
@@ -18,8 +19,9 @@
 //      checks FIRST for LibOVRRT64_1.dll -- and puts that folder on PATH so the
 //      runtime's openxr_loader.dll resolves. Only this launch sees these; a normal
 //      launch of Echo is untouched.
-// Then it starts Echo with the remaining arguments, waits for it to exit and returns its
-// exit code. Its own failures have codes of their own (see Exit below and the README).
+// --verbose max makes the runtime log everything it can see into EchoXR\runtime.log (it sets
+// ECHOXR_VERBOSE for this launch). Then it starts Echo with the remaining arguments, waits for it
+// to exit and returns its exit code. Its own failures have codes of their own (see Exit below and the README).
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
@@ -128,10 +130,13 @@ int wmain(int argc, wchar_t** argv) {
     std::wstring runtimeMode = L"steamvr";      // steamvr | active
     std::wstring passArgs;
     bool setupOnly = false;                     // --setup-only: do the first-run setup, don't launch
+    std::wstring verbose;                       // --verbose default|max
+    bool verboseGiven = false;
     for (int i = 1; i < argc; ++i) {
         std::wstring a = argv[i];
         if (a == L"--exe" && i + 1 < argc) { exe = argv[++i]; continue; }
         if (a == L"--runtime" && i + 1 < argc) { runtimeMode = argv[++i]; continue; }
+        if (a == L"--verbose") { verboseGiven = true; if (i + 1 < argc) verbose = argv[++i]; continue; }
         if (a == L"--setup-only") { setupOnly = true; continue; }
         // Quoted only when it has to be: the event builds' parser takes "-flag" for an unknown
         // option and quits.
@@ -141,6 +146,17 @@ int wmain(int argc, wchar_t** argv) {
         OpenLog(xrDir + L"launcher.log");
 
     Log(L"EchoXR launcher %hs", ECHOXR_VERSION);
+    // Never a reason not to start: a value it doesn't know keeps the default.
+    if (verboseGiven) {
+        if (!_wcsicmp(verbose.c_str(), L"default") || !_wcsicmp(verbose.c_str(), L"max")) {
+            SetEnvironmentVariableW(L"ECHOXR_VERBOSE", _wcsicmp(verbose.c_str(), L"max") ? L"default" : L"max");
+            Log(L"--verbose %ls: runtime.log %ls", verbose.c_str(),
+                _wcsicmp(verbose.c_str(), L"max") ? L"has the default lines" : L"logs everything");
+        } else {
+            SetEnvironmentVariableW(L"ECHOXR_VERBOSE", L"default");
+            Log(L"--verbose \"%ls\" isn't default or max: runtime.log has the default lines", verbose.c_str());
+        }
+    }
     const char* (CDECL* wineVersion)() = nullptr;
     if (HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"))
         wineVersion = (const char* (CDECL*)())GetProcAddress(ntdll, "wine_get_version");

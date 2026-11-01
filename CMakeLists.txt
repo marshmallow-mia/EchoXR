@@ -109,7 +109,8 @@ add_library(echoxr_runtime SHARED
     xr/src/xr_main.cpp
     xr/src/settings_file.cpp
     xr/src/diagnostics.cpp
-    xr/src/queue_watch.cpp)
+    xr/src/queue_watch.cpp
+    xr/src/resource_watch.cpp)
 set_target_properties(echoxr_runtime PROPERTIES OUTPUT_NAME LibOVRRT64_1 PREFIX "")
 # ReviveXR's own folder stays off the include path: its OVR_CAPI.h wraps the SDK's
 # <OVR_CAPI.h>, and quoted includes find the folder's files anyway.
@@ -122,7 +123,7 @@ target_include_directories(echoxr_runtime PRIVATE
 target_compile_definitions(echoxr_runtime PRIVATE
     XR_USE_PLATFORM_WIN32 VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR NOMINMAX
     MICROPROFILE_ENABLED=0 MICROPROFILE_GPU_TIMERS=0 OVR_DLL_BUILD NDEBUG
-    _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE)
+    _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE ECHOXR_VERSION="${ECHOXR_VERSION}")
 # Revive's sources use std::chrono without including it everywhere.
 target_compile_options(echoxr_runtime PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:/EHsc /FIchrono>)

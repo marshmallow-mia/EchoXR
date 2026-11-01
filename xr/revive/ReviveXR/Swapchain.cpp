@@ -106,6 +106,10 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	// runtimes don't mind; asking for the count first is valid everywhere.
 	uint32_t imageCount = 0;
 	CHK_XR(xrEnumerateSwapchainImages(Swapchain, 0, &imageCount, nullptr));
+	if (EchoXR_Max())
+		EchoXR_Log("Swapchain made: %ux%u, format %lld, %u sample(s), %u mip(s), %u layer(s), %u face(s), %u image(s)%s",
+			createInfo.width, createInfo.height, (long long)createInfo.format, createInfo.sampleCount, createInfo.mipCount,
+			createInfo.arraySize, createInfo.faceCount, imageCount, desc->StaticImage ? ", static" : "");
 
 	XrSwapchainImageAcquireInfo acqInfo = XR_TYPE(SWAPCHAIN_IMAGE_ACQUIRE_INFO);
 	CHK_XR(xrAcquireSwapchainImage(Swapchain, &acqInfo, &CurrentIndex));

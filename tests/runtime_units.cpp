@@ -184,6 +184,22 @@ static void SwapchainWaits()
 	CHECK(LogNth(1) && LogNth(10) && !LogNth(11) && LogNth(100) && !LogNth(101) && LogNth(200));
 }
 
+static void Verbosity()
+{
+	using namespace echoxr;
+	Verbose v = Verbose::Default;
+	CHECK(ParseVerbose("max", v) && v == Verbose::Max);
+	CHECK(ParseVerbose("Default", v) && v == Verbose::Default);
+	CHECK(ParseVerbose("MAX", v) && v == Verbose::Max);
+	// Anything else leaves it as it was.
+	CHECK(!ParseVerbose("everything", v) && v == Verbose::Max);
+	CHECK(!ParseVerbose("", v) && !ParseVerbose(nullptr, v) && !ParseVerbose(" max", v));
+	// The cap keeps runtime.log uploadable; what matters most still gets in.
+	CHECK(KeepLogLine(0, false) && KeepLogLine(kLogCapBytes - 1, false));
+	CHECK(!KeepLogLine(kLogCapBytes, false) && KeepLogLine(kLogCapBytes, true));
+	CHECK(kLogCapBytes < (8u << 20));
+}
+
 int main()
 {
 	Extensions();
@@ -193,6 +209,7 @@ int main()
 	VrKeyDecisions();
 	Adapters();
 	SwapchainWaits();
+	Verbosity();
 	if (g_failures)
 	{
 		std::printf("%d check(s) failed\n", g_failures);

@@ -2,7 +2,8 @@
 // adapter on CI's Windows runner, the first GPU elsewhere. The device is removed on purpose
 // (ID3D12Device5::RemoveDevice), and runtime.log's lines have to name it, once. A system with
 // no D3D12 device, or one that can't remove a device (Wine's vkd3d), skips what it can't do;
-// on WARP nothing may be skipped, so CI's pass means the removal was seen.
+// on WARP nothing may be skipped, so CI's pass means the removal was seen. CI runs it twice, the
+// second time with ECHOXR_VERBOSE=max: then a line a second comes too, and only then.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d12.h>
@@ -25,7 +26,7 @@ static std::vector<std::string> g_lines;
 // Stands in for xr_main.cpp's runtime.log.
 void EchoXR_Log(const char* fmt, ...)
 {
-	char line[1024];
+	char line[4096];
 	va_list ap;
 	va_start(ap, fmt);
 	vsnprintf(line, sizeof(line), fmt, ap);
@@ -87,6 +88,23 @@ int main()
 	CHECK(Count("NOT THE SAME ADAPTER") == 1);
 	EchoXR_WatchD3D12Device(device.Get(), own);
 	CHECK(Count("D3D12 device on ") == 2 && Count("NOT THE SAME ADAPTER") == 1);
+	// Every adapter once, with its driver; the game adapter's video memory (WARP has some).
+	CHECK(Count("Adapter 0: ") == 1 && Count(", driver ") >= 1);
+	if (onWarp)
+		CHECK(Count("Video memory of the game's adapter: ") == 1);
+	CHECK(Count("Video memory") == 1);
+	CHECK(Count("Watching the graphics device's allocations") == 1);
+
+	// The line a second: only at max.
+	const bool max = EchoXR_Max();
+	CHECK(Count("Logging") == 0);   // xr_main.cpp's, not here
+	for (int i = 0; i < 50 && Count("Second 1:") == 0; ++i)
+		Sleep(50);
+	CHECK(Count("Second 1:") == (max ? 1 : 0));
+	if (max)
+		CHECK(Count("xrWaitFrame 0, ") == 1 && Count("Command line: ") == 1);
+	else
+		CHECK(Count("Command line: ") == 0);
 
 	// A breakpoint while the device is fine says nothing.
 	Breakpoint();
@@ -115,6 +133,13 @@ int main()
 	CHECK(Count("was removed") == 1);
 	CHECK(Count("noticed by EchoXR's watch") == 1);
 	CHECK(Count("DRED") >= 1);
+	CHECK(Count("Allocations since the start: ") == 1);
+	if (onWarp)
+		CHECK(Count("Video memory at the removal: ") == 1);
+	// No more lines a second after the removal.
+	const int seconds = Count("Second ");
+	Sleep(1500);
+	CHECK(Count("Second ") == seconds);
 
 	// Echo VR's own int3 afterwards doesn't log it a second time.
 	Breakpoint();
