@@ -117,7 +117,7 @@ int main()
 	hd.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 	ComPtr<ID3D12Heap> h;
 	CHECK(FAILED(device->CreateHeap(&hd, IID_PPV_ARGS(&h))));
-	CHECK(CountAll({ "Couldn't make a heap: 0x", "0.0 MB in a default heap", "(2 failed so far)" }) == 1);
+	CHECK(CountAll({ "Couldn't make a heap: 0x", "0.0 MB (default heap)", "(2 failed so far)" }) == 1);
 
 	// At max the line a second has the second's allocations.
 	if (max)

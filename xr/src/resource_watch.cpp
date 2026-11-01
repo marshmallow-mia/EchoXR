@@ -180,7 +180,7 @@ void Made(ID3D12Device* device, const char* kind, const D3D12_RESOURCE_DESC* des
 
 	char what[160], by[128];
 	if (heap)
-		snprintf(what, sizeof(what), "%.1f MB in a %s", Mb(heap->SizeInBytes), HeapName(&heap->Properties));
+		snprintf(what, sizeof(what), "%.1f MB (%s)", Mb(heap->SizeInBytes), HeapName(&heap->Properties));
 	else
 	{
 		DescribeResource(desc, bytes, what, sizeof(what));
