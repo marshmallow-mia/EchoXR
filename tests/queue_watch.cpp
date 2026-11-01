@@ -151,6 +151,27 @@ int main()
 	CHECK(CountAll({ "still pending", "to reach 7 (it was at 3)",
 		"the last signal of that fence asked of a queue here: 3 on \"Other Queue\", by queue_watch.exe+0x" }) == 1);
 
+	// Some work for the game's queue: an empty command list.
+	ComPtr<ID3D12CommandAllocator> allocator;
+	ComPtr<ID3D12GraphicsCommandList> list;
+	if (SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) &&
+		SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&list))) &&
+		SUCCEEDED(list->Close()))
+	{
+		ID3D12CommandList* lists[] = { list.Get() };
+		game->ExecuteCommandLists(1, lists);
+	}
+	else
+		CHECK(!"no command list");
+
+	// At max the line a second has the queues' counts (once the other queue was used, the next
+	// line has it too); otherwise there is none.
+	for (int waited = 0; waited < 2500 && CountAll({ "Second ", "GPU waits pending ", "\"Other Queue\" " }) == 0; waited += 50)
+		Sleep(50);
+	CHECK((Count("Second ") > 0) == max);
+	if (max)
+		CHECK(CountAll({ "Second ", "GPU waits pending ", "\"Other Queue\" " }) >= 1);
+
 	ComPtr<ID3D12Device5> device5;
 	if (FAILED(device.As(&device5)))
 	{
@@ -166,27 +187,9 @@ int main()
 		return Finish(b.Get(), 7);
 	}
 
-	// Some work for the game's queue: an empty command list.
-	ComPtr<ID3D12CommandAllocator> allocator;
-	ComPtr<ID3D12GraphicsCommandList> list;
-	if (SUCCEEDED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) &&
-		SUCCEEDED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&list))) &&
-		SUCCEEDED(list->Close()))
-	{
-		ID3D12CommandList* lists[] = { list.Get() };
-		game->ExecuteCommandLists(1, lists);
-	}
-	else
-		CHECK(!"no command list");
-
-	// At max the line a second has the queues' counts; otherwise there is none.
-	WaitFor("Second ", 1, max ? 2500 : 1500);
-	CHECK((Count("Second ") > 0) == max);
-	if (max)
-		CHECK(CountAll({ "Second ", "GPU waits pending ", "\"Other Queue\" " }) >= 1);
-
 	// The removal's report lists the wait still pending, as it was before the removal.
-	WaitFor("was removed", 1, 5000);
+	// Its last line is the allocations'.
+	WaitFor("Allocations since the start", 1, 5000);
 	CHECK(Count("was removed") == 1);
 	CHECK(Count("GPU waits pending at the removal: 1 (oldest first)") == 1);
 	CHECK(CountAll({ "    queue \"Game Queue\" (the game's)", "to reach 7 (it was at 3)" }) == 1);

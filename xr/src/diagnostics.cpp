@@ -578,6 +578,14 @@ void EchoXR_WatchD3D12Device(ID3D12Device* device, LUID required)
 
 void EchoXR_UnwatchDevice()
 {
+	if (g_breakpointHandler)
+		RemoveVectoredExceptionHandler(g_breakpointHandler);
+	g_breakpointHandler = nullptr;
+	// Waits for a running callback, outside the lock it takes: a removal's report is written to
+	// its end before the watches it reads stop.
+	if (g_wait)
+		UnregisterWaitEx(g_wait, INVALID_HANDLE_VALUE);
+	g_wait = nullptr;
 	EchoXR_UnwatchQueues();
 	// Waits for a running tick.
 	if (g_tick)
@@ -590,13 +598,6 @@ void EchoXR_UnwatchDevice()
 			g_adapter->Release();
 		g_adapter = nullptr;
 	}
-	if (g_breakpointHandler)
-		RemoveVectoredExceptionHandler(g_breakpointHandler);
-	g_breakpointHandler = nullptr;
-	// Waits for a running callback, outside the lock it takes.
-	if (g_wait)
-		UnregisterWaitEx(g_wait, INVALID_HANDLE_VALUE);
-	g_wait = nullptr;
 
 	std::lock_guard<std::mutex> lock(g_watchLock);
 	if (g_removedEvent)

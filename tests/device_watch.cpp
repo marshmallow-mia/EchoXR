@@ -128,7 +128,8 @@ int main()
 	}
 
 	// The watch hears of it by itself, as when the GPU hangs while the game waits elsewhere.
-	for (int i = 0; i < 100 && Count("was removed") == 0; ++i)
+	// Its last line is the allocations'.
+	for (int i = 0; i < 100 && Count("Allocations since the start") == 0; ++i)
 		Sleep(50);
 	CHECK(Count("was removed") == 1);
 	CHECK(Count("noticed by EchoXR's watch") == 1);
