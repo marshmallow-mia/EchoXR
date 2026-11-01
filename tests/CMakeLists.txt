@@ -31,8 +31,17 @@ set_target_properties(platform_signin PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAK
 add_test(NAME platform_signin COMMAND platform_signin $<TARGET_FILE:echoxr_platform>)
 
 # The device-removal watch (xr/src/diagnostics.cpp) on a D3D12 device removed on purpose.
-add_executable(device_watch device_watch.cpp ${CMAKE_SOURCE_DIR}/xr/src/diagnostics.cpp)
+add_executable(device_watch device_watch.cpp ${CMAKE_SOURCE_DIR}/xr/src/diagnostics.cpp
+    ${CMAKE_SOURCE_DIR}/xr/src/queue_watch.cpp)
 target_include_directories(device_watch PRIVATE ${CMAKE_SOURCE_DIR}/xr/src)
-target_link_libraries(device_watch PRIVATE d3d12 dxgi dxguid)
+target_link_libraries(device_watch PRIVATE detours d3d12 dxgi dxguid)
 set_target_properties(device_watch PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
 add_test(NAME device_watch COMMAND device_watch)
+
+# The GPU-wait watch (xr/src/queue_watch.cpp): a queue waiting for a fence nobody signals yet.
+add_executable(queue_watch queue_watch.cpp ${CMAKE_SOURCE_DIR}/xr/src/diagnostics.cpp
+    ${CMAKE_SOURCE_DIR}/xr/src/queue_watch.cpp)
+target_include_directories(queue_watch PRIVATE ${CMAKE_SOURCE_DIR}/xr/src)
+target_link_libraries(queue_watch PRIVATE detours d3d12 dxgi dxguid)
+set_target_properties(queue_watch PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+add_test(NAME queue_watch COMMAND queue_watch)

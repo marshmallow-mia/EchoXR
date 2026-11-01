@@ -115,7 +115,7 @@ RiftLift code is used (it's GPL-3.0); xr/README.md lists what changed and why.
 | --- | --- |
 | `EchoXR\launcher.log` | every launch (dated): the runtime chosen, Proton's OpenXR setup, the runtime and headset found, Echo's exit code. Kept up to about 1 MB |
 | `EchoXR\platform.log` | the Platform SDK stand-in: where the identity came from, the ids, and every call the game's `pnsovr.dll` made |
-| `EchoXR\runtime.log` | the latest launch's OpenXR side: platform, runtime and extensions, the field-of-view probe, the game's graphics adapter next to the one the runtime asked for, session states, swapchain format changes, the first frame, every failed OpenXR call, frame calls slower than 200 ms and swapchain images that weren't ready in time, and a removed graphics device: the reason, the OpenXR call in progress, and DRED's unfinished command lists and page fault |
+| `EchoXR\runtime.log` | the latest launch's OpenXR side: platform, runtime and extensions, the field-of-view probe, the game's graphics adapter next to the one the runtime asked for, session states, swapchain format changes, the first frame, every failed OpenXR call, frame calls slower than 200 ms and swapchain images that weren't ready in time, GPU waits still pending after half a second (the queue, the fence and value, who queued the wait and who was last asked to signal it), and a removed graphics device: the reason, the OpenXR call in progress, DRED's unfinished command lists and page fault, and the GPU waits pending then |
 | `_local\r14logs\*.log` | Echo's own log ("Initializing OVR session…" and any session error) |
 
 `EchoXR.exe` returns Echo's exit code, or one of its own:

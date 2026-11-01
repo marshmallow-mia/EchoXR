@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+struct ID3D12CommandQueue;
 struct ID3D12Device;
 
 // Times one OpenXR frame call. The call's name is kept while it runs, so a device removal names
@@ -40,3 +41,14 @@ void EchoXR_EnableDred();
 // error handler), so the log is also written from that breakpoint if the watch didn't run yet.
 void EchoXR_WatchD3D12Device(ID3D12Device* device, LUID required);
 void EchoXR_UnwatchDevice();
+
+// Watches the GPU's waits on the game's queue `queue` and on every other D3D12 queue in the
+// process (the hook sits on the driver's methods, so SteamVR's are seen too). A wait still
+// pending after half a second gets a line: the queue, the fence, the value it waits for, the
+// module that queued it and the last signal of that fence asked of a queue here. A removal's
+// report lists the waits pending then (xr/src/queue_watch.cpp). The watch ends with
+// EchoXR_UnwatchDevice.
+void EchoXR_WatchD3D12Queue(ID3D12CommandQueue* queue);
+// For the removal report and EchoXR_UnwatchDevice.
+void EchoXR_LogQueueWaits();
+void EchoXR_UnwatchQueues();

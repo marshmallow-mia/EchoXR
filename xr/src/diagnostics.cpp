@@ -147,6 +147,7 @@ void LogRemoval(ID3D12Device* device, const char* noticedBy)
 		(unsigned long)reason, noticedBy, call ? call : "none", (unsigned long long)g_slowCalls.load(),
 		(unsigned long long)g_timedOutWaits.load(), (unsigned long long)g_gaveUpWaits.load());
 	LogDred(device);
+	EchoXR_LogQueueWaits();
 }
 
 void CALLBACK OnRemoved(PVOID, BOOLEAN)
@@ -263,6 +264,7 @@ void EchoXR_WatchD3D12Device(ID3D12Device* device, LUID required)
 
 void EchoXR_UnwatchDevice()
 {
+	EchoXR_UnwatchQueues();
 	if (g_breakpointHandler)
 		RemoveVectoredExceptionHandler(g_breakpointHandler);
 	g_breakpointHandler = nullptr;

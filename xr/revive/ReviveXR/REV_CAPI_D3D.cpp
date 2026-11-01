@@ -212,6 +212,7 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_CreateTextureSwapChainDX(ovrSession session,
 			DetourTransactionCommit();
 
 			EchoXR_WatchD3D12Device(pDevice12.Get(), graphicsReq.adapterLuid);
+			EchoXR_WatchD3D12Queue(pQueue.Get());
 
 			XrGraphicsBindingD3D12KHR graphicsBinding = XR_TYPE(GRAPHICS_BINDING_D3D12_KHR);
 			graphicsBinding.device = pDevice12.Get();
