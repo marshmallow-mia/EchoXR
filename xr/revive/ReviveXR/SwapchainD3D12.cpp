@@ -36,6 +36,7 @@ ovrTextureSwapChainD3D12::ovrTextureSwapChainD3D12(struct ID3D12CommandQueue* qu
 	, m_Allocator()
 	, m_AcquireBarriers()
 	, m_ReleaseBarriers()
+	, m_FirstBarriers()
 	, m_Fence()
 	, m_Event()
 	, m_Signaled(0)
@@ -57,6 +58,19 @@ ovrTextureSwapChainD3D12::ovrTextureSwapChainD3D12(struct ID3D12CommandQueue* qu
 
 ovrTextureSwapChainD3D12::~ovrTextureSwapChainD3D12()
 {
+	// The barrier lists may still be queued: wait (at most 5 s) until the GPU is past them.
+	if (m_Fence && m_Event && m_Queue && SUCCEEDED(m_Queue->Signal(m_Fence, m_Signaled + 1)) &&
+		SUCCEEDED(m_Fence->SetEventOnCompletion(m_Signaled + 1, m_Event)))
+		WaitForSingleObject(m_Event, 5000);
+	for (ID3D12GraphicsCommandList* list : m_FirstUsed)
+		list->Release();
+	if (m_FirstBarriers)
+	{
+		for (uint32_t i = 0; i < Length; i++)
+			if (m_FirstBarriers[i])
+				m_FirstBarriers[i]->Release();
+		delete[] m_FirstBarriers;
+	}
 	for (uint32_t i = 0; i < Length; i++)
 	{
 		m_AcquireBarriers[i]->Release();
@@ -81,13 +95,13 @@ ovrTextureSwapChainD3D12::~ovrTextureSwapChainD3D12()
 }
 
 // EchoXR: SteamVR copies the image at xrReleaseSwapchainImage, with command lists on the game's
-// queue and two command allocators a swapchain that it takes in turn, resetting the one it used
-// the release before last. Nothing waited for that work: when Echo VR's queue fell behind (a
-// burst of cosmetics uploading) SteamVR reset an allocator the GPU still had to run, the D3D12
-// debug layer's error #552, and the GPU could hang (DXGI_ERROR_DEVICE_HUNG). So a release waits
-// until the GPU has done everything queued before the previous release began, which leaves at
-// most about two frames queued. A removed device completes every fence, so this never waits on
-// one; after 5 s it logs and goes on as before.
+// queue and two command allocators a swapchain that it takes in turn, resetting one without
+// waiting for the GPU. When Echo VR's queue fell behind (a burst of cosmetics uploading) SteamVR
+// reset an allocator the GPU still had to run, the D3D12 debug layer's error #552, and the GPU
+// could hang (DXGI_ERROR_DEVICE_HUNG). So the game's queue signals a fence after each release,
+// and the next release waits until the GPU has passed it: SteamVR's copy of the previous
+// release is done, and the GPU still has the game's current frame queued. A removed device
+// completes every fence, so this never waits on one; after 5 s it logs and goes on as before.
 void ovrTextureSwapChainD3D12::WaitForEarlierRelease()
 {
 	if (!m_Fence || !m_Event)
@@ -99,14 +113,18 @@ void ovrTextureSwapChainD3D12::WaitForEarlierRelease()
 		const DWORD waited = WaitForSingleObject(m_Event, 5000);
 		const ULONGLONG ms = GetTickCount64() - start;
 		if (waited != WAIT_OBJECT_0)
-			EchoXR_Log("A swapchain release waited 5 s for the GPU to finish the frame before last and went on without it "
+			EchoXR_Log("A swapchain release waited 5 s for the GPU to finish the previous release and went on without it "
 				"(SteamVR may now reuse command memory the GPU still needs)");
 		else if (ms >= 50 && EchoXR_LogNth(++m_LongWaits))
-			EchoXR_Log("A swapchain release waited %llu ms for the GPU to finish the frame before last (%llu such waits so far)",
+			EchoXR_Log("A swapchain release waited %llu ms for the GPU to finish the previous release (%llu such waits so far)",
 				(unsigned long long)ms, (unsigned long long)m_LongWaits);
 	}
-	if (SUCCEEDED(m_Queue->Signal(m_Fence, want + 1)))
-		m_Signaled = want + 1;
+}
+
+void ovrTextureSwapChainD3D12::SignalRelease()
+{
+	if (m_Fence && SUCCEEDED(m_Queue->Signal(m_Fence, m_Signaled + 1)))
+		m_Signaled++;
 }
 
 ovrResult ovrTextureSwapChainD3D12::Commit(ovrSession session)
@@ -114,7 +132,16 @@ ovrResult ovrTextureSwapChainD3D12::Commit(ovrSession session)
 	WaitForEarlierRelease();
 	m_Queue->ExecuteCommandLists(1, (ID3D12CommandList**)&m_ReleaseBarriers[CurrentIndex]);
 	ovrResult result = ovrTextureSwapChainData::Commit(session);
-	m_Queue->ExecuteCommandLists(1, (ID3D12CommandList**)&m_AcquireBarriers[CurrentIndex]);
+	SignalRelease();
+	// An image's first hand-over to the game: Echo VR starts a fresh depth image from COMMON.
+	ID3D12GraphicsCommandList* toGame = m_AcquireBarriers[CurrentIndex];
+	if (m_FirstBarriers && m_FirstBarriers[CurrentIndex])
+	{
+		toGame = m_FirstBarriers[CurrentIndex];
+		m_FirstBarriers[CurrentIndex] = nullptr;
+		m_FirstUsed.push_back(toGame);
+	}
+	m_Queue->ExecuteCommandLists(1, (ID3D12CommandList**)&toGame);
 	return result;
 }
 
@@ -155,9 +182,31 @@ ovrResult ovrTextureSwapChainD3D12::InitBarriers()
 		m_ReleaseBarriers[i]->SetName(L"EchoXR: swapchain image to the runtime");
 		m_ReleaseBarriers[i]->ResourceBarrier(1, &barrier);
 		m_ReleaseBarriers[i]->Close();
+
+		// EchoXR: Echo VR's first barrier on a fresh depth image starts from COMMON (the debug
+		// layer's error #527 otherwise), so its first hand-over goes there.
+		if (IsDepthFormat(Desc.Format))
+		{
+			if (!m_FirstBarriers)
+				m_FirstBarriers = new ID3D12GraphicsCommandList*[Length]();
+			CHK_HR(m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_Allocator,
+				nullptr, IID_PPV_ARGS(&m_FirstBarriers[i])));
+			barrier.Transition.StateBefore = target;
+			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+			m_FirstBarriers[i]->SetName(L"EchoXR: fresh swapchain image to the game");
+			m_FirstBarriers[i]->ResourceBarrier(1, &barrier);
+			m_FirstBarriers[i]->Close();
+		}
 	}
 
-	m_Queue->ExecuteCommandLists(1, (ID3D12CommandList**)&m_AcquireBarriers[CurrentIndex]);
+	ID3D12GraphicsCommandList* toGame = m_AcquireBarriers[CurrentIndex];
+	if (m_FirstBarriers)
+	{
+		toGame = m_FirstBarriers[CurrentIndex];
+		m_FirstBarriers[CurrentIndex] = nullptr;
+		m_FirstUsed.push_back(toGame);
+	}
+	m_Queue->ExecuteCommandLists(1, (ID3D12CommandList**)&toGame);
 
 	return ovrSuccess;
 }
