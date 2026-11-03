@@ -79,6 +79,7 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 	MicroProfileWebServerStart();
 
 	EchoXR_EnableDred();
+	EchoXR_EnableDebugLayer();
 
 	DetachDetours();
 	ovrResult rs = Runtime::Get().CreateInstance(&g_Instance, params);

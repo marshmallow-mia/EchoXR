@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -266,6 +267,7 @@ void LogRemoval(ID3D12Device* device, const char* noticedBy)
 		std::lock_guard<std::mutex> lock(g_adapterLock);
 		adapter = g_adapter;
 	}
+	DrainDebugMessages(true);
 	if (VideoMemory(adapter.Get(), memory, sizeof(memory)))
 		EchoXR_Log("  Video memory at the removal: %s", memory);
 	LogDred(device);
@@ -366,6 +368,63 @@ void CallsOfTheSecond(char* out, size_t size)
 	}
 }
 
+// The D3D12 debug layer (ECHOXR_D3D12_DEBUG): 0 off, 1 the layer, 2 also GPU-based validation.
+std::atomic<int> g_debugLayer{ 0 };
+std::mutex g_infoLock;                 // the info queue, its counts and its draining
+ID3D12InfoQueue* g_info = nullptr;
+std::map<int, uint64_t> g_infoCounts;  // message ID -> how often it came
+uint64_t g_infoTotal = 0;
+
+const char* SeverityName(D3D12_MESSAGE_SEVERITY s)
+{
+	switch (s)
+	{
+	case D3D12_MESSAGE_SEVERITY_CORRUPTION: return "CORRUPTION";
+	case D3D12_MESSAGE_SEVERITY_ERROR: return "ERROR";
+	case D3D12_MESSAGE_SEVERITY_WARNING: return "WARNING";
+	case D3D12_MESSAGE_SEVERITY_INFO: return "INFO";
+	default: return "MESSAGE";
+	}
+}
+
+// Writes the debug layer's new messages to runtime.log: the first three of each ID in full,
+// then only counted (`summary`: also every ID's count so far).
+void DrainDebugMessages(bool summary)
+{
+	std::lock_guard<std::mutex> lock(g_infoLock);
+	if (!g_info)
+		return;
+	const UINT64 n = g_info->GetNumStoredMessages();
+	std::vector<char> buf;
+	for (UINT64 i = 0; i < n; i++)
+	{
+		SIZE_T len = 0;
+		if (FAILED(g_info->GetMessage(i, nullptr, &len)) || !len)
+			continue;
+		buf.resize(len);
+		D3D12_MESSAGE* m = (D3D12_MESSAGE*)buf.data();
+		if (FAILED(g_info->GetMessage(i, m, &len)))
+			continue;
+		if (m->Severity == D3D12_MESSAGE_SEVERITY_INFO || m->Severity == D3D12_MESSAGE_SEVERITY_MESSAGE)
+			continue;
+		g_infoTotal++;
+		const uint64_t c = ++g_infoCounts[(int)m->ID];
+		if (c <= 3)
+			EchoXR_Log("D3D12 debug layer %s #%d: %.*s", SeverityName(m->Severity), (int)m->ID,
+				(int)std::min<SIZE_T>(m->DescriptionByteLength, 1500), m->pDescription ? m->pDescription : "");
+		else if (c == 4)
+			EchoXR_Log("D3D12 debug layer: more of #%d are only counted", (int)m->ID);
+	}
+	g_info->ClearStoredMessages();
+	if (summary && g_infoTotal)
+	{
+		std::string line;
+		for (const auto& kv : g_infoCounts)
+			line += (line.empty() ? "" : ", ") + std::string("#") + std::to_string(kv.first) + " x" + std::to_string(kv.second);
+		EchoXR_Log("D3D12 debug layer: %llu warning(s)/error(s) so far: %s", (unsigned long long)g_infoTotal, line.c_str());
+	}
+}
+
 std::atomic_flag g_ticking = ATOMIC_FLAG_INIT;
 
 // Once a second: the video memory's budget and use, and at max a line with everything counted.
@@ -382,6 +441,8 @@ void CALLBACK Tick(PVOID, BOOLEAN)
 	if (adapter && !g_removalLogged.load())
 	{
 		const uint64_t second = ++g_seconds;
+		if (g_debugLayer.load())
+			DrainDebugMessages(second % 60 == 0);
 		DXGI_QUERY_VIDEO_MEMORY_INFO local = {};
 		char memory[256] = "unknown";
 		if (VideoMemory(adapter.Get(), memory, sizeof(memory), &local) && local.Budget)
@@ -563,6 +624,37 @@ void EchoXR_EnableDred()
 	dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
 }
 
+void EchoXR_EnableDebugLayer()
+{
+	char text[16] = {};
+	const DWORD n = GetEnvironmentVariableA("ECHOXR_D3D12_DEBUG", text, sizeof(text));
+	if (!n || n >= sizeof(text))
+		return;
+	std::string v(text);
+	for (char& c : v)
+		c = (char)tolower((unsigned char)c);
+	const int level = v == "gbv" || v == "2" ? 2 : v == "1" || v == "on" || v == "layer" ? 1 : 0;
+	if (!level)
+		return;
+	ComPtr<ID3D12Debug> debug;
+	if (FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+	{
+		EchoXR_Log("D3D12 debug layer asked for (ECHOXR_D3D12_DEBUG=%s), but this system doesn't have it "
+			"(Windows' optional feature \"Graphics Tools\")", text);
+		return;
+	}
+	debug->EnableDebugLayer();
+	ComPtr<ID3D12Debug1> debug1;
+	if (level == 2 && SUCCEEDED(debug.As(&debug1)))
+	{
+		debug1->SetEnableGPUBasedValidation(TRUE);
+		debug1->SetEnableSynchronizedCommandQueueValidation(TRUE);
+	}
+	g_debugLayer = level;
+	EchoXR_Log("D3D12 debug layer on%s (ECHOXR_D3D12_DEBUG=%s): its warnings and errors go here once a second",
+		level == 2 ? ", with GPU-based validation" : "", text);
+}
+
 void EchoXR_WatchD3D12Device(ID3D12Device* device, LUID required)
 {
 	LogAdapter(device, required);
@@ -571,6 +663,21 @@ void EchoXR_WatchD3D12Device(ID3D12Device* device, LUID required)
 		if (g_device)
 			return;
 		WatchRemoval(device);
+	}
+	if (g_debugLayer.load())
+	{
+		std::lock_guard<std::mutex> lock(g_infoLock);
+		ComPtr<ID3D12InfoQueue> info;
+		if (!g_info && SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&info))))
+		{
+			info->SetMessageCountLimit(16384);
+			info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, FALSE);
+			info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, FALSE);
+			info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, FALSE);
+			g_info = info.Detach();
+		}
+		else if (!g_info)
+			EchoXR_Log("D3D12 debug layer: the game's device has no info queue (the layer isn't on for it)");
 	}
 	StartTick(device);
 	EchoXR_WatchD3D12Resources(device);

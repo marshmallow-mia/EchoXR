@@ -47,6 +47,12 @@ void EchoXR_SwapchainWaitTimedOut(int64_t waitedNs, bool gaveUp);
 // command list.
 void EchoXR_EnableDred();
 
+// ECHOXR_D3D12_DEBUG=1 turns on the D3D12 debug layer before the game creates its device, =gbv
+// also GPU-based validation and synchronized queue validation (slow). Its warnings and errors
+// go to runtime.log once a second (the first three of each message ID, then counted; a count
+// per ID every minute and at a removal). Needs Windows' optional feature "Graphics Tools".
+void EchoXR_EnableDebugLayer();
+
 // Logs the game's adapter next to the one the OpenXR runtime asked for, and watches the device:
 // once it is removed, runtime.log gets the reason, the command lists the GPU didn't finish and
 // the operation it was on. Echo VR stops itself right after it sees a removal (an int3 in its
