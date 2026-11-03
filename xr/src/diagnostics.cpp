@@ -20,6 +20,8 @@ void EchoXR_Log(const char* fmt, ...);
 
 namespace {
 
+void DrainDebugMessages(bool summary);
+
 std::atomic<int> g_verbose{ -1 };
 std::atomic<int> g_important{ 0 };
 
