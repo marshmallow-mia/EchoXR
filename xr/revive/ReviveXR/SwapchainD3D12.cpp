@@ -6,18 +6,53 @@
 #include <d3d12.h>
 #include <openxr/openxr_platform.h>
 
+#include "../../src/echoxr_diag.h"
+#include "../../src/echoxr_policy.h"
+
+void EchoXR_Log(const char* fmt, ...);
+
+static_assert(echoxr::kGameColorState == (D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) &&
+	echoxr::kGameDepthState == (D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+	D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE), "echoxr_policy.h image states");
+
+// ECHOXR_D3D12_THROTTLE=0 turns the wait before a release off (to compare); read once.
+static bool ThrottleOn()
+{
+	static const bool on = [] {
+		char text[8] = {};
+		const DWORD n = GetEnvironmentVariableA("ECHOXR_D3D12_THROTTLE", text, sizeof(text));
+		const bool off = n && n < sizeof(text) && (!_stricmp(text, "0") || !_stricmp(text, "off") ||
+			!_stricmp(text, "false") || !_stricmp(text, "no"));
+		if (off)
+			EchoXR_Log("ECHOXR_D3D12_THROTTLE=%s: a swapchain release doesn't wait for the GPU (as up to 0.6.3)", text);
+		return !off;
+	}();
+	return on;
+}
+
 ovrTextureSwapChainD3D12::ovrTextureSwapChainD3D12(struct ID3D12CommandQueue* queue)
 	: m_Queue(queue)
 	, m_Device()
 	, m_Allocator()
 	, m_AcquireBarriers()
 	, m_ReleaseBarriers()
+	, m_Fence()
+	, m_Event()
+	, m_Signaled(0)
+	, m_LongWaits(0)
 {
 	if (m_Queue)
 		m_Queue->AddRef();
 
 	if (m_Queue && SUCCEEDED(m_Queue->GetDevice(IID_PPV_ARGS(&m_Device))))
+	{
 		m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_Allocator));
+		if (ThrottleOn() && SUCCEEDED(m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_Fence))))
+		{
+			m_Fence->SetName(L"EchoXR: swapchain release fence");
+			m_Event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+		}
+	}
 }
 
 ovrTextureSwapChainD3D12::~ovrTextureSwapChainD3D12()
@@ -33,6 +68,11 @@ ovrTextureSwapChainD3D12::~ovrTextureSwapChainD3D12()
 	if (m_Allocator)
 		m_Allocator->Release();
 
+	if (m_Fence)
+		m_Fence->Release();
+	if (m_Event)
+		CloseHandle(m_Event);
+
 	if (m_Device)
 		m_Device->Release();
 
@@ -40,8 +80,38 @@ ovrTextureSwapChainD3D12::~ovrTextureSwapChainD3D12()
 		m_Queue->Release();
 }
 
+// EchoXR: SteamVR copies the image at xrReleaseSwapchainImage, with command lists on the game's
+// queue and two command allocators a swapchain that it takes in turn, resetting the one it used
+// the release before last. Nothing waited for that work: when Echo VR's queue fell behind (a
+// burst of cosmetics uploading) SteamVR reset an allocator the GPU still had to run, the D3D12
+// debug layer's error #552, and the GPU could hang (DXGI_ERROR_DEVICE_HUNG). So a release waits
+// until the GPU has done everything queued before the previous release began, which leaves at
+// most about two frames queued. A removed device completes every fence, so this never waits on
+// one; after 5 s it logs and goes on as before.
+void ovrTextureSwapChainD3D12::WaitForEarlierRelease()
+{
+	if (!m_Fence || !m_Event)
+		return;
+	const UINT64 want = m_Signaled;
+	if (want && m_Fence->GetCompletedValue() < want && SUCCEEDED(m_Fence->SetEventOnCompletion(want, m_Event)))
+	{
+		const ULONGLONG start = GetTickCount64();
+		const DWORD waited = WaitForSingleObject(m_Event, 5000);
+		const ULONGLONG ms = GetTickCount64() - start;
+		if (waited != WAIT_OBJECT_0)
+			EchoXR_Log("A swapchain release waited 5 s for the GPU to finish the frame before last and went on without it "
+				"(SteamVR may now reuse command memory the GPU still needs)");
+		else if (ms >= 50 && EchoXR_LogNth(++m_LongWaits))
+			EchoXR_Log("A swapchain release waited %llu ms for the GPU to finish the frame before last (%llu such waits so far)",
+				(unsigned long long)ms, (unsigned long long)m_LongWaits);
+	}
+	if (SUCCEEDED(m_Queue->Signal(m_Fence, want + 1)))
+		m_Signaled = want + 1;
+}
+
 ovrResult ovrTextureSwapChainD3D12::Commit(ovrSession session)
 {
+	WaitForEarlierRelease();
 	m_Queue->ExecuteCommandLists(1, (ID3D12CommandList**)&m_ReleaseBarriers[CurrentIndex]);
 	ovrResult result = ovrTextureSwapChainData::Commit(session);
 	m_Queue->ExecuteCommandLists(1, (ID3D12CommandList**)&m_AcquireBarriers[CurrentIndex]);
@@ -59,6 +129,9 @@ ovrResult ovrTextureSwapChainD3D12::InitBarriers()
 
 		D3D12_RESOURCE_STATES target = IsDepthFormat(Desc.Format) ?
 			D3D12_RESOURCE_STATE_DEPTH_WRITE : D3D12_RESOURCE_STATE_RENDER_TARGET;
+		// EchoXR: the state Echo VR leaves the image in and expects it back in (its own barriers;
+		// Revive assumed PIXEL_SHADER_RESOURCE, which the debug layer reported as error #527).
+		const D3D12_RESOURCE_STATES game = (D3D12_RESOURCE_STATES)echoxr::GameImageState(IsDepthFormat(Desc.Format));
 
 		CHK_HR(m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_Allocator,
 			nullptr, IID_PPV_ARGS(&m_AcquireBarriers[i])));
@@ -68,7 +141,7 @@ ovrResult ovrTextureSwapChainD3D12::InitBarriers()
 		barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
 		barrier.Transition.pResource = image.texture;
 		barrier.Transition.StateBefore = target;
-		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+		barrier.Transition.StateAfter = game;
 		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 		m_AcquireBarriers[i]->SetName(L"EchoXR: swapchain image to the game");   // named in DRED's log
 		m_AcquireBarriers[i]->ResourceBarrier(1, &barrier);
@@ -77,7 +150,7 @@ ovrResult ovrTextureSwapChainD3D12::InitBarriers()
 		CHK_HR(m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_Allocator,
 			nullptr, IID_PPV_ARGS(&m_ReleaseBarriers[i])));
 
-		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+		barrier.Transition.StateBefore = game;
 		barrier.Transition.StateAfter = target;
 		m_ReleaseBarriers[i]->SetName(L"EchoXR: swapchain image to the runtime");
 		m_ReleaseBarriers[i]->ResourceBarrier(1, &barrier);

@@ -176,6 +176,9 @@ static void GameBuilds()
 static void SwapchainWaits()
 {
 	using namespace echoxr;
+	// The state Echo VR leaves swapchain images in: colour all shader resource, depth also depth read.
+	CHECK(GameImageState(false) == 0xC0u);
+	CHECK(GameImageState(true) == 0xE0u);
 	CHECK(AfterSwapchainWait(0, SwapchainWait::Ready, 0) == WaitNext::Done);              // XR_SUCCESS
 	CHECK(AfterSwapchainWait(kXrTimeoutExpired, SwapchainWait::Ready, 11000000) == WaitNext::Again);
 	CHECK(AfterSwapchainWait(kXrTimeoutExpired, SwapchainWait::Ready, kSwapchainWaitLimitNs) == WaitNext::GiveUp);

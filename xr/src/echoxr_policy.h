@@ -118,6 +118,16 @@ inline WaitNext AfterSwapchainWait(int result, SwapchainWait policy, int64_t wai
 	return waitedNs < kSwapchainWaitLimitNs ? WaitNext::Again : WaitNext::GiveUp;
 }
 
+// The D3D12 resource state Echo VR leaves a swapchain image in for the runtime and expects it
+// back in (D3D12_RESOURCE_STATES bits, seen by the D3D12 debug layer): colour
+// NON_PIXEL_SHADER_RESOURCE | PIXEL_SHADER_RESOURCE, depth also DEPTH_READ.
+constexpr unsigned kGameColorState = 0x40 | 0x80;
+constexpr unsigned kGameDepthState = 0x20 | 0x40 | 0x80;
+inline unsigned GameImageState(bool depth)
+{
+	return depth ? kGameDepthState : kGameColorState;
+}
+
 // Whether a diagnostic line about the `count`th slow call (from 1) is worth writing: the
 // first ten, then every hundredth, so a bad run says so without filling runtime.log.
 inline bool LogNth(uint64_t count)
